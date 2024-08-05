@@ -1,0 +1,93 @@
+---
+
+- name: "Add repo key"
+  ansible.builtin.apt_key:
+    #url: "{{ hashicorp_gpg_key }}"
+    data: "{{ lookup('file', 'hashicorp.asc') }}"
+    state: present
+
+- name: "Add hashicorp repo"
+  ansible.builtin.apt_repository:
+    filename: hashicorp_stable
+    repo: "{{ hashicorp_repo }}"
+    update_cache: yes
+    state: present
+
+- name: "Install consul"
+  ansible.builtin.apt:
+    name: "{{ consul_version }}"
+    state: latest
+    update_cache: yes
+    cache_valid_time: 3600
+  register: result
+  until: result is successful
+
+- name: Configure consul server
+  block:
+
+  - name: Deploy ssl certs
+    ansible.builtin.copy:
+      src: "{{ dc }}/{{ item }}"
+      dest: "{{consul_conf_dir}}{{ item }}"
+      owner: consul
+      group: consul
+      mode: "0644"
+    loop: "{{ certs_to_deploy }}"
+    when: ssl_true
+
+  - name: Create the configurations for consul
+    ansible.builtin.template:
+      src: consul.hcl.j2
+      dest: "{{ consul_conf_dir }}/{{ item.key }}"
+      owner: consul
+      group: consul
+      mode: "0644"
+    loop: {{ consul_config| dict2items }}
+    notify:
+      - restart consul
+  when: ansible_fqdn in groups['consul']
+
+- name: Deploy service file
+  ansible.builtin.copy:
+    src: consul.service
+    dest: /usr/lib/systemd/system/consul.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Ensure consul is started
+  ansible.builtin.service:
+    name: consul
+    state: started
+    enabled: true
+
+- name: bootstrap acl and save them to ansible node
+  when:
+    - bootstrap_acl
+    - acl_token is not defined
+    - ansible_fqdn in groups['consul']
+  block:
+    - name: check if acl-bootstrap exists
+      ansible.builtin.stat:
+        path: /tmp/acl-bootstrap
+      register: aclbootstrap
+
+    - name: bootstrap acls
+      ansible.builtin.shell: consul acl bootstrap >> /tmp/acl-bootstrap
+      register: acl_created
+      when: not aclbootstrap.stat.exists and ansible_fqdn ==  groups['consul'][0]
+
+    - name: download bootstrap to ansible node
+      ansible.builtin.fetch:
+        dest: /tmp/acl-bootstrap-{{ inventory_hostname }}
+        src: /tmp/acl-bootstrap
+        flat: yes
+      when: acl_created is changed
+
+    - name: create empty acl bootstrap
+      ansible.builtin.file:
+        state: touch
+        dest: /tmp/acl-bootstrap
+      when: not aclbootstrap.stat.exists
+
+

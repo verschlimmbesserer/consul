@@ -1,0 +1,46 @@
+hashicorp_repo: "deb [arch=amd64] https://apt.releases.hashicorp.com {{ ansible_distribution_release|lower }} main"
+hashicorp_gpg_key: "https://apt.releases.hashicorp.com/gpg"
+consul_version: consul
+
+certs_to_deploy:
+    - "{{ dc }}-server-consul-{{ groups['consul'].index(inventory_hostname) }}.pem"
+    - "{{ dc }}-server-consul-{{ groups['consul'].index(inventory_hostname) }}-key.pem"
+    - consul-agent-ca.pem
+
+consul_conf_dir: "/etc/consul.d/"
+ssl_true: true
+bootstrap_acl: true
+dc: "vagrant"
+
+consul_config:
+  config.hcl:
+    datacenter: "vagrant"
+    data_dir: "/opt/consul"
+    encrypt: "n9fCNIgsYLU8s+LZ4nrlyytG+fWGrTUI5LUc2u5QuWA="
+    ca_file: "/etc/consul.d/consul-agent-ca.pem"
+    cert_file: "/etc/consul.d/vagrant-server-consul-{{ groups['consul'].index(inventory_hostname) }}.pem"
+    key_file:  "/etc/consul.d/vagrant-server-consul-{{ groups['consul'].index(inventory_hostname) }}-key.pem"
+    verify_incoming: true
+    verify_outgoing: true
+    verify_server_hostname: true
+    acl:
+    - default_policy: allow
+      enable_token_persistence: true
+      enabled: true
+    performance:
+    - raft_multiplier: 1
+    retry_join: ["192.168.7.19", "192.168.7.18", "192.168.7.17"]
+    server: true
+    bootstrap_expect: 3
+    ui: true
+    client_addr: 0.0.0.0
+    bind_addr:  "{{'{{'}}GetInterfaceIP \"eth0\"{{'}}'}}"
+    dns_config:
+      enable_truncate: true
+      only_passing: true
+    domain: consul
+    enable_script_checks: true
+    enable_syslog: true
+    leave_on_terminate: true
+    log_level: INFO
+    rejoin_after_leave: true
